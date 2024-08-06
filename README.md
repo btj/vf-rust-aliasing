@@ -32,3 +32,18 @@ Ghost command `end_ref(p)`, where `p` is of type `&T` and `T` is a simple primit
 ## Function arguments
 
 For each function argument `p` of shared reference type, the `ref_initialized(p)` token is consumed for the duration of the call.
+
+# Verifying the borrow checker
+
+The above ghost commands can be applied manually by the user when verifying Rust modules using VeriFast. But what about safe Rust code not verified using VeriFast, i.e. verified only by the Rust borrow checker?
+
+In particular, when the user defines a struct with a custom RustBelt type interpretation, it must be checked that it is compatible with unverified clients creating shared references to instances of that struct. In particular, the SHR predicate must support this. To enforce this, for each such struct T, the user must define a lemma `init_ref_T`, defined as follows:
+
+```
+lemma void init_ref_T(p: *T, x: *T)
+    requires [_]T_share(?k, ?t, x) &*& ref_init_perm(p, x);
+    ensures [_]T_share(k, t, p) &*& ref_initialized(p);
+{ ... }
+```
+
+This rules out, for example, that the SHR predicate at `x` asserts full permission for `x` in an invariant, unless an `UnsafeCell` is involved. Note: proving such a lemma generally requires a lifetime logic axiom `frac-acc-strong` similar to `bor-acc-strong`, to allow stealing some permissions at `x` and transferring them to `p`, provided they are transferred back to `x` when the lifetime ends. During the "restoring viewshift" that is run when the lifetime ends, the ghost commands for ending the shared reference must be executed. Note: `ref_initialized(p)` must be available when this happens. (Maybe ref_initialized should be inside the borrow?)
