@@ -40,10 +40,62 @@ The above ghost commands can be applied manually by the user when verifying Rust
 In particular, when the user defines a struct with a custom RustBelt type interpretation, it must be checked that it is compatible with unverified clients creating shared references to instances of that struct. In particular, the SHR predicate must support this. To enforce this, for each such struct T, the user must define a lemma `init_ref_T`, defined as follows:
 
 ```
-lemma void init_ref_T(p: *T, x: *T)
-    requires [_]T_share(?k, ?t, x) &*& ref_init_perm(p, x);
-    ensures [_]T_share(k, t, p) &*& ref_initialized(p);
+pred_ctor ref_initialized_<T>(p: *T)() = ref_initialized(p);
+
+lem init_ref_T(p: *T, x: *T)
+    requires [_]T_share(?k, ?t, x) &*& [?q]lifetime_token(k) &*& ref_init_perm(p, x);
+    ensures [q]lifetime_token(k) &*& [_]T_share(k, t, p) &*& [_]frac_borrow(k, ref_initialized_(p));
 { ... }
 ```
 
-This rules out, for example, that the SHR predicate at `x` asserts full permission for `x` in an invariant, unless an `UnsafeCell` is involved. Note: proving such a lemma generally requires a lifetime logic axiom `frac-acc-strong` similar to `bor-acc-strong`, to allow stealing some permissions at `x` and transferring them to `p`, provided they are transferred back to `x` when the lifetime ends. During the "restoring viewshift" that is run when the lifetime ends, the ghost commands for ending the shared reference must be executed. Note: `ref_initialized(p)` must be available when this happens. (Maybe `ref_initialized` should be inside the borrow?)
+This rules out, for example, that the SHR predicate at `x` asserts full permission for `x` in an invariant, unless an `UnsafeCell` is involved. Note: proving such a lemma generally requires a lifetime logic axiom `frac-acc-strong` similar to `bor-acc-strong`, to allow stealing some permissions at `x` and transferring them to `p`, provided they are transferred back to `x` when the lifetime ends. During the "restoring viewshift" that is run when the lifetime ends, the ghost commands for ending the shared reference must be executed.
+
+Note: `ref_initialized(p)` must be available when this happens. But it must also be available to the client when it passes the shared reference as an argument in a function call, because a fraction of the `ref_initialized(p)` chunk is consumed temporarily by Tree Borrows at the call site. Therefore, it must be produced in a separate fractured borrow at the same lifetime.
+
+## frac-acc-strong
+
+For reference, recall the definition of `open_full_borrow_strong` and `close_full_borrow_strong`:
+
+```
+// LftL-bor-acc-strong
+predicate close_full_borrow_token_strong(lifetime_t k1, predicate() P, real q, lifetime_t k);
+
+lemma lifetime_t open_full_borrow_strong(lifetime_t k, predicate() P, real q);
+    nonghost_callers_only
+    requires full_borrow(k, P) &*& [q]lifetime_token(k);
+    ensures lifetime_inclusion(k, result) == true &*& P() &*& close_full_borrow_token_strong(result, P, q, k);
+
+typedef lemma void full_borrow_convert_strong(predicate() Ctx, predicate() Q, lifetime_t k1, predicate() P)();
+    requires Ctx() &*& Q() &*& [_]lifetime_dead_token(k1); // Empty mask
+    ensures P();
+
+lemma void close_full_borrow_strong(lifetime_t k1, predicate() P, predicate() Q);
+    nonghost_callers_only
+    requires close_full_borrow_token_strong(k1, P, ?q, ?k) &*& is_full_borrow_convert_strong(?f, ?Ctx, Q, k1, P) &*& Ctx() &*& Q();
+    ensures full_borrow(k1, Q) &*& [q]lifetime_token(k) &*& is_full_borrow_convert_strong(f, Ctx, Q, k1, P);
+```
+
+(TODO: extend this definition so that a user mask is available in the restoring viewshift.)
+
+It seems like the following variant for fractured borrows would be sound:
+
+```
+// LftL-frac-acc-strong (does not exist in RustBelt!)
+predicate close_frac_borrow_token_strong(lifetime_t k1, predicate(;) P, real q, lifetime_t k, real f);
+
+lemma lifetime_t open_frac_borrow_strong(lifetime_t k, predicate(;) P, real q);
+    nonghost_callers_only
+    requires frac_borrow(k, P) &*& [q]lifetime_token(k);
+    ensures lifetime_inclusion(k, result) == true &*& [?f]P() &*& close_full_borrow_token_strong(result, P, q, k, f);
+
+typedef lemma void frac_borrow_convert_strong(predicate() Ctx, predicate() Q, lifetime_t k1, real f, predicate() P)();
+    requires Ctx() &*& Q() &*& [_]lifetime_dead_token(k1); // Empty mask
+    ensures [f]P();
+
+lemma void close_frac_borrow_strong(lifetime_t k1, predicate() P, predicate() Q);
+    nonghost_callers_only
+    requires close_full_borrow_token_strong(k1, P, ?q, ?k, ?f) &*& is_frac_borrow_convert_strong(?f, ?Ctx, Q, k1, P, f) &*& Ctx() &*& Q();
+    ensures full_borrow(k1, Q) &*& [q]lifetime_token(k) &*& is_frac_borrow_convert_strong(f, Ctx, Q, k1, P);
+```
+
+Notice that it produces a full borrow. To prove `init_ref_T`, one would split this full borrow into a part that is turned into a fractured borrow and that goes into the SHR predicate at `p`, and the `ref_initialized` token that is also turned into a fractured borrow.
