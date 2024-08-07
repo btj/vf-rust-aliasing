@@ -9,7 +9,7 @@ In VeriFast, currently, the expression `&mut *x` simply evaluates to `x`. In thi
 
 ## Function arguments
 
-Tree Borrows says that references passed as function arguments must not become disabled while the function call executes. We can enforce this for mutable references by temporarily consuming, at the call site, the `ref_mut_end_token` for each argument that is a mutable reference for the duration of the call.
+Tree Borrows says that references passed as function arguments must not become disabled while the function call executes. We can enforce this for mutable references by temporarily consuming, at the call site, some fraction of `ref_mut_end_token` for each argument that is a mutable reference for the duration of the call. (Note: it does not work to temporarily consume this chunk fully, because the same reference may be passed as an argument to any number of nested function calls.)
 
 # Shared references
 
@@ -31,7 +31,7 @@ Ghost command `end_ref(p)`, where `p` is of type `&T` and `T` is a simple primit
 
 ## Function arguments
 
-For each function argument `p` of shared reference type, the `ref_initialized(p)` token is consumed for the duration of the call.
+For each function argument `p` of shared reference type, some fraction of the `ref_initialized(p)` token is consumed for the duration of the call.
 
 # Verifying the borrow checker
 
