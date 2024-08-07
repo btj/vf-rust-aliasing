@@ -9,7 +9,7 @@ In VeriFast, currently, the expression `&mut *x` simply evaluates to `x`. In thi
 
 ## Function arguments
 
-Tree Borrows says that references passed as function arguments must not become disabled while the function call executes. We can enforce this for mutable references by temporarily consuming, at the call site, some fraction of `ref_mut_end_token` for each argument that is a mutable reference for the duration of the call. (Note: it does not work to temporarily consume this chunk fully, because the same reference may be passed as an argument to any number of nested function calls.)
+Tree Borrows says that references passed as function arguments must not become disabled while the function call executes. We can enforce this for mutable references by temporarily consuming, at the call site, some fraction of `ref_mut_end_token` for each argument that is a mutable reference for the duration of the call. (Note: it does not work to temporarily consume this chunk fully, because the same reference may be passed as an argument to any number of nested function calls. A fraction of this chunk must therefore travel with the mutable reference wherever it goes. Therefore, it should probably be kept inside a fractured borrow at the same lifetime as the mutable reference.)
 
 # Shared references
 
@@ -99,3 +99,9 @@ lemma void close_frac_borrow_strong(lifetime_t k1, predicate() P, predicate() Q)
 ```
 
 Notice that it produces a full borrow. To prove `init_ref_T`, one would split this full borrow into a part that is turned into a fractured borrow and that goes into the SHR predicate at `p`, and the `ref_initialized` token that is also turned into a fractured borrow.
+
+## The meaning of references in RustBelt
+
+In conclusion, the meaning of mutable and shared references in RustBelt must be updated slightly:
+- The meaning of a mutable reference `p : &mut 'a T` at thread `t` is `full_borrow(a, full_borrow_content::<T>(t, p)) &*& [_]frac_borrow(a, ref_mut_end_token_(p))`.
+- The meaning of a shared reference `p : &'a T` at thread `t` is `[_]T_share(a, t, p) &*& [_]frac_borrow(a, ref_initialized_(p))`
