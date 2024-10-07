@@ -408,5 +408,9 @@ Notice that it produces a full borrow. To prove `init_ref_T`, one would split th
 ## The meaning of references in RustBelt
 
 In conclusion, the meaning of mutable and shared references in RustBelt must be updated slightly, so that any recipient can pass the reference as an argument in a function call:
-- The meaning of a mutable reference `p : &mut 'a T` at thread `t` is `full_borrow(a, full_borrow_content::<T>(t, p)) &*& [_]frac_borrow(a, ref_mut_end_token_(p))`.
-- The meaning of a shared reference `p : &'a T` at thread `t` is `[_]T_share(a, t, p) &*& [_]frac_borrow(a, ref_initialized_(p))`
+- The meaning of a mutable reference `p : &mut 'a T` at thread `t` changes as follows:
+  - from `full_borrow(a, full_borrow_content::<T>(t, p))`
+  - to `full_borrow(a, full_borrow_content::<T>(t, p)) &*& [_]frac_borrow(a, ref_mut_end_token_(p))`.
+- The meaning of a shared reference `p : &'a T` at thread `t` changes as follows:
+  - from `[_]T_share(a, t, p)`
+  - to `[_]T_share(a, t, p) &*& [_]frac_borrow(a, ref_initialized_(p))`.
