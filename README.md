@@ -135,7 +135,7 @@ mod points {
 
     /*@
     pred Point_share(p: *Point) = p.x |-> _ &*& p.y |-> _;
-    pred end_ref_Point_token(p: *Point, a: *Point, frac: real) = end_ref_token(&(*p).x, &(*a).x, frac) &*& end_ref_token(&(*p).y, (*a).x, frac);
+    pred end_ref_Point_token(p: *Point, a: *Point, frac: real) = end_ref_token(&(*p).x, &(*a).x, frac) &*& end_ref_token(&(*p).y, &(*a).y, frac);
 
     lem init_ref_Point(p: *Point, a: *Point, frac: real)
         req ref_init_perm::<Point>(p, a) &*& [frac]a |-> _;
