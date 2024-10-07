@@ -336,7 +336,7 @@ z.replace(31);
 | `open_ref_init_perm(p)` | Applicable if `p` is of type `&T` where `T` is a struct. Consumes `ref_init_perm(p, ?x)` and, for each field `fi` of T whose type is not of the form `UnsafeCell<_>`, produces `ref_init_perm(&(*p).fi, &(*x).fi)`. |
 | `close_ref_initialized(p)` | Applicable if `p` is of type `&T` where `T` is a struct. Consumes, for each field `fi` of T whose type is not of the form `UnsafeCell<_>`, `ref_initialized(&(*p).fi)`, and produces `ref_initialized(p)`. |
 | `open_ref_initialized(p)` | Applicable if `p` is of type `&T` where `T` is a struct. Consumes `ref_initialized(p)` and produces, for each field `fi` of T whose type is not of the form `UnsafeCell<_>`, `ref_initialized(&(*p).fi)`. |
-| `end_ref(p)` | Applicable if `p` is of type `&T` where `T` is a simple scalar primitive type. Consumes `ref_end_token(p, ?x, ?frac)` and `[frac]*p \|-> ?v` and produces `[frac]*x \|-> v`. |
+| `end_ref(p)` | Applicable if `p` is of type `&T` where `T` is a simple scalar primitive type. Consumes `ref_initialized(p)` and `ref_end_token(p, ?x, ?frac)` and `[frac]*p \|-> ?v` and produces `[frac]*x \|-> v`. |
 
 # Verifying the borrow checker
 
