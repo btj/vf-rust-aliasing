@@ -87,6 +87,22 @@ x += 1;
 
 For each function argument `p` of shared reference type, some fraction of the `ref_initialized(p)` token is consumed for the duration of the call.
 
+### Compound function arguments
+
+The [Rustonomicon](https://doc.rust-lang.org/reference/behavior-considered-undefined.html) says
+
+<blockquote>When a reference (but not a Box!) is passed to a function, it is live at least as long as that function call, again except if the `&T` contains an `UnsafeCell<U>`.
+All this also applies when values of these types are passed in a (nested) field of a compound type, but not behind pointer indirections.</blockquote>
+
+Since structs may be abstraction boundaries, we introduce a multi-step process. Before the first (non-ghost) instruction of a function, for each argument value `v` of type T a `protected::<T>(v, ?info)` chunk is consumed. `info` is of type `frac_tree = ft_unit | ft_single(real) | ft_pair(frac_tree, frac_tree)`. This chunk can be obtained as follows:
+
+- If `v` is a simple scalar value (like `i32`), `protect_scalar(v)` produces `protected(v, ft_unit)`.
+- If `v` is a mutable reference, `protect_ref_mut(v, frac)` consumes `[frac]ref_mut_end_token(v, _)` and produces `protected(v, ft_single(frac))`.
+- If `v` is a shared reference, `protect_ref(v, frac)` consumes `[frac]ref_initialized(v)` and produces `protected(v, ft_single(frac))`.
+- If `v` is a struct with two fields, with values `v1` and `v2`, `protect_struct(v)` consumes `protected(v1, ?info1)` and `protected(v2, ?info2)` and produces `protected(v, ft_pair(info1, info2))`. (This generalizes straightforwardly to structs with a different number of fields.)
+
+After the last (non-ghost) instruction before a function returns, these chunks are produced again. Ghost commands `unprotect_ref`, `unprotect_ref_mut`, and `unprotect_struct` are the inverse of the corresponding `protect_XYZ` commands can be used to recover the `ref_mut_end_token` and `ref_initialized` fractions consumed by the protection process.
+
 # Shared references to structs
 
 If `T` is a struct, ghost command `open_ref_init_perm::<T>(p)` consumes `ref_init_perm::<T>(p, ?x)` and produces `ref_init_perm::<Ti>(&(*p).fi, &(*x).fi)` for each field `fi` of type `Ti` of struct `T` whose type is not of the form `UnsafeCell<_>`. Ghost command `close_ref_initialized::<T>(p)` where `T` is a struct consumes `ref_initialized::<Ti>(&(*p).fi)` for each field `fi` of struct `T` whose type is not of the form `UnsafeCell<_>` and produces `ref_initialized::<T>(p)`.
@@ -320,7 +336,7 @@ The [Rustonomicon](https://doc.rust-lang.org/reference/behavior-considered-undef
 
 <blockquote>Moreover, the bytes pointed to by a shared reference, including transitively through other references (both shared and mutable) and Boxes, are immutable; transitivity includes those references stored in fields of compound types.</blockquote>
 
-If `T` is of the form `&U` or `&mut U` or `Box<U>`, ghost command `init_ref(p, frac)` consumes `ref_init_perm::<T>(p, ?x)` and `[frac]*x |-> ?y`, and produces `[frac]*p |-> y` as well as `initializing_ref_ref::<T>(p, x, frac, ?q)` and `ref_init_perm::<U>(q, y)`, and the fact `ref_origin(q) == ref_origin(y)`. `q` is a fresh pointer value with the same address as `y`. It is as if a new shared reference to `y` is being created, but note that there is no way for `y` to ever end up in a program variable so it is never actually used. This simply reuses the mechanism for shared reference initialization to "freeze" recursive references until the original reference is ended.
+If `p` is of type `&T` and `T` is of the form `&U` or `&mut U` or `Box<U>`, ghost command `init_ref(p, frac)` consumes `ref_init_perm::<T>(p, ?x)` and `[frac]*x |-> ?y`, and produces `[frac]*p |-> y` as well as `initializing_ref_ref::<T>(p, x, frac, ?q)` and `ref_init_perm::<U>(q, y)`, and the fact `ref_origin(q) == ref_origin(y)`. `q` is a fresh pointer value with the same address as `y`. It is as if a new shared reference to `y` is being created, but note that there is no way for `y` to ever end up in a program variable so it is never actually used. This simply reuses the mechanism for shared reference initialization to "freeze" recursive references until the original reference is ended.
 
 At this point, `q` must be recursively initialized, producing `ref_initialized::<U>(q)`.
 
@@ -346,6 +362,7 @@ At this point, `q` can also be ended.
 | `ref_end_token(p, x, frac)` | When combined with `ref_initialized(p)`, denotes permission to end shared reference `p`, which was derived from `x` and which was initialized with a fraction `frac` of `x`. |
 | `initializing_ref_ref(p, x, frac, q)` | Denotes that shared reference `p`, derived from `x` and initialized with fraction `frac` of `x`, points to a reference or `Box` `y`. A "virtual" shared reference `q` has been derived from `y` and is being initialized. |
 | `ref_ref_end_token(p, x, frac, q)` | Denotes that shared reference `p`, derived from `x` and initialized with fraction `frac` of `x`, points to a reference or `Box` `y`. A "virtual" shared reference `q` has been derived and initialized from `y`. |
+| `protected(v, info)` | Denotes that (component of) function argument `v` has been protected against being ended before the end of the function call. |
 
 ## Ghost commands
 
@@ -359,6 +376,13 @@ At this point, `q` can also be ended.
 | `end_ref(p)` | Applicable if `p` is of type `&T` where `T` is a simple scalar primitive type. Consumes `ref_initialized(p)` and `ref_end_token(p, ?x, ?frac)` and `[frac]*p \|-> ?v` and produces `[frac]*x \|-> v`. |
 | `finish_init_ref_ref(p)` | Consumes `initializing_ref_ref::<T>(p, ?x, ?frac, ?q)` and `[1/2]ref_initialized::<U>(q)` and produces `ref_ref_end_token(p, x, frac, q)` and `ref_initialized::<T>(p)`. |
 | `end_ref_ref(p)` | Consumes `ref_ref_end_token(p, ?x, ?frac, ?q)` and `ref_initialized::<T>(p)` and produces `[frac]*x \|-> y` and `[1/2]ref_initialized::<U>(q)`. |
+| `protect_scalar(v)` | Applicable if `v` is of simple scalar type (e.g. `i32`). Produces `protected(v, ft_unit)`. |
+| `protect_ref_mut(v, frac)` | Applicable if `v` is a mutable reference. Consumes `[frac]ref_mut_end_token(v, _)` and produces `protected(v, ft_single(frac))`. |
+| `protect_ref(v, frac)` | Applicable if `v` is a shared reference. Consumes `[frac]ref_initialized(v)` and produces `protected(v, ft_single(frac))`. |
+| `protect_struct(v)` | Applicable if `v` is a struct. Consumes `protected(vi, ?infoi)` for each component `vi` of `v`, and produces `protected(v, ft_pair(info1, ft_pair(info2, ... ft_unit ...)))`. |
+| `unprotect_ref_mut(v)` | Applicable if `v` is a mutable reference. Consumes `protected(v, ft_single(?frac))` and produces `[frac]ref_mut_end_token(v, _)`. |
+| `unprotect_ref(v)` | Applicable if `v` is a shared reference. Consumes `protected(v, ft_single(?frac))` and produces `[frac]ref_initialized(v)`. |
+| `unprotect_struct(v)` | Applicable if `v` is a struct. Consumes `protected(v, ft_pair(?info1, ft_pair(?info2, ...)))` and produces, for each component value `vi` of `v`, `protected(vi, infoi)`. |
 
 # Verifying the borrow checker
 
@@ -436,3 +460,15 @@ In conclusion, the meaning of mutable and shared references in RustBelt must be 
 - The meaning of a shared reference `p : &'a T` at thread `t` changes as follows:
   - from `[_]T_share(a, t, p)`
   - to `[_]T_share(a, t, p) &*& [_]frac_borrow(a, ref_initialized_(p))`.
+
+## Protection of structs
+
+For each struct S with a user-defined OWN predicate, the following proof obligation must be proven to ensure values of S can be passed as arguments to unverified typechecked functions:
+
+```
+lem protect_S(k: lifetime_t, t: thread_id_t, v: S)
+    req <S>.own(t, v) &*& type_outlives_lifetime::<S>(k) == true;
+    ens <S>.own(t, v) &*& [_]frac_borrow(k, protected_(v));
+```
+
+That is, from the OWN predicate we must be able to derive a `protected(v, _)` fact that lives as long as the function call to which the `S` value is passed (which is necessarily a lifetime included in the lifetimes involved in type S). Notice that this is trivially the case if `S` has the default interpretation, given the meaning of references defined above, where a value `p` of type `&'a mut T` travels with a `[_]frac_borrow(a, ref_mut_end_token_(p))` and a value `p` of type `&'a T` travels with a `[_]frac_borrow(a, ref_initialized_(p))`.
