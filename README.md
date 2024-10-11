@@ -101,7 +101,7 @@ Since structs may be abstraction boundaries, we introduce a multi-step process. 
 - If `v` is a shared reference, `protect_ref(v, frac)` consumes `[frac]ref_initialized(v)` and produces `protected(v, ft_single(frac))`.
 - If `v` is a struct with two fields, with values `v1` and `v2`, `protect_struct(v)` consumes `protected(v1, ?info1)` and `protected(v2, ?info2)` and produces `protected(v, ft_pair(info1, info2))`. (This generalizes straightforwardly to structs with a different number of fields.)
 
-After the last (non-ghost) instruction before a function returns, these chunks are produced again. Ghost commands `unprotect_ref`, `unprotect_ref_mut`, and `unprotect_struct` are the inverse of the corresponding `protect_XYZ` commands can be used to recover the `ref_mut_end_token` and `ref_initialized` fractions consumed by the protection process.
+After the last (non-ghost) instruction before a function returns, these chunks are produced again. Ghost commands `unprotect_ref`, `unprotect_ref_mut`, and `unprotect_struct` are the inverse of the corresponding `protect_XYZ` commands and can be used to recover the `ref_mut_end_token` and `ref_initialized` fractions consumed by the protection process.
 
 # Shared references to structs
 
