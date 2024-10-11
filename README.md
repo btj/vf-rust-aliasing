@@ -391,7 +391,7 @@ predicate close_frac_borrow_token_strong(lifetime_t k1, predicate(;) P, real q, 
 lemma lifetime_t open_frac_borrow_strong(lifetime_t k, predicate(;) P, real q);
     nonghost_callers_only
     requires [_]frac_borrow(k, P) &*& [q]lifetime_token(k);
-    ensures lifetime_inclusion(k, result) == true &*& [?f]P() &*& close_full_borrow_token_strong(result, P, q, k, f);
+    ensures lifetime_inclusion(k, result) == true &*& [?f]P() &*& close_frac_borrow_token_strong(result, P, q, k, f);
 
 typedef lemma void frac_borrow_convert_strong(predicate() Ctx, predicate() Q, lifetime_t k1, real f, predicate() P)();
     requires Ctx() &*& Q() &*& [_]lifetime_dead_token(k1); // Empty mask
@@ -399,8 +399,8 @@ typedef lemma void frac_borrow_convert_strong(predicate() Ctx, predicate() Q, li
 
 lemma void close_frac_borrow_strong(lifetime_t k1, predicate() P, predicate() Q);
     nonghost_callers_only
-    requires close_full_borrow_token_strong(k1, P, ?q, ?k, ?f) &*& is_frac_borrow_convert_strong(?f, ?Ctx, Q, k1, P, f) &*& Ctx() &*& Q();
-    ensures full_borrow(k1, Q) &*& [q]lifetime_token(k) &*& is_frac_borrow_convert_strong(f, Ctx, Q, k1, P);
+    requires close_full_borrow_token_strong(k1, P, ?q, ?k, ?f) &*& is_frac_borrow_convert_strong(?c, ?Ctx, Q, k1, f, P) &*& Ctx() &*& Q();
+    ensures full_borrow(k1, Q) &*& [q]lifetime_token(k) &*& is_frac_borrow_convert_strong(c, Ctx, Q, k1, f, P);
 ```
 
 Notice that it produces a full borrow. To prove `init_ref_T`, one would split this full borrow into a part that is turned into a fractured borrow and that goes into the SHR predicate at `p`, and the `ref_initialized` token that is also turned into a fractured borrow.
