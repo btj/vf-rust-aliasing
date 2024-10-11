@@ -363,21 +363,21 @@ For reference, recall the definition of `open_full_borrow_strong` and `close_ful
 
 ```
 // LftL-bor-acc-strong
-predicate close_full_borrow_token_strong(lifetime_t k1, predicate() P, real q, lifetime_t k);
+pred close_full_borrow_token_strong(k1: lifetime_t, P: pred(), q: real, k: lifetime_t);
 
-lemma lifetime_t open_full_borrow_strong(lifetime_t k, predicate() P, real q);
+lem open_full_borrow_strong(k: lifetime_t, P: pred(), q: real) -> lifetime_t;
     nonghost_callers_only
-    requires full_borrow(k, P) &*& [q]lifetime_token(k);
-    ensures lifetime_inclusion(k, result) == true &*& P() &*& close_full_borrow_token_strong(result, P, q, k);
+    req full_borrow(k, P) &*& [q]lifetime_token(k);
+    ens lifetime_inclusion(k, result) == true &*& P() &*& close_full_borrow_token_strong(result, P, q, k);
 
-typedef lemma void full_borrow_convert_strong(predicate() Ctx, predicate() Q, lifetime_t k1, predicate() P)();
-    requires Ctx() &*& Q() &*& [_]lifetime_dead_token(k1); // Empty mask
-    ensures P();
+lem_type full_borrow_convert_strong(Ctx: pred(), Q: pred(), k1: lifetime_t, P: pred()) = lem();
+    req Ctx() &*& Q() &*& [_]lifetime_dead_token(k1); // Empty mask
+    ens P();
 
-lemma void close_full_borrow_strong(lifetime_t k1, predicate() P, predicate() Q);
+lem close_full_borrow_strong(k1: lifetime_t, P: pred(), Q: pred());
     nonghost_callers_only
-    requires close_full_borrow_token_strong(k1, P, ?q, ?k) &*& is_full_borrow_convert_strong(?f, ?Ctx, Q, k1, P) &*& Ctx() &*& Q();
-    ensures full_borrow(k1, Q) &*& [q]lifetime_token(k) &*& is_full_borrow_convert_strong(f, Ctx, Q, k1, P);
+    req close_full_borrow_token_strong(k1, P, ?q, ?k) &*& is_full_borrow_convert_strong(?f, ?Ctx, Q, k1, P) &*& Ctx() &*& Q();
+    ens full_borrow(k1, Q) &*& [q]lifetime_token(k) &*& is_full_borrow_convert_strong(f, Ctx, Q, k1, P);
 ```
 
 (TODO: extend this definition so that a user mask is available in the restoring viewshift.)
@@ -386,21 +386,21 @@ It seems like the following variant for fractured borrows would be sound:
 
 ```
 // LftL-frac-acc-strong (does not exist in RustBelt!)
-predicate close_frac_borrow_token_strong(lifetime_t k1, predicate(;) P, real q, lifetime_t k, real f);
+pred close_frac_borrow_token_strong(k1: lifetime_t, P: pred(;), q: real, k: lifetime_t, f: real);
 
-lemma lifetime_t open_frac_borrow_strong(lifetime_t k, predicate(;) P, real q);
+lem open_frac_borrow_strong(k: lifetime_t, P: pred(;), q: real) -> lifetime_t;
     nonghost_callers_only
-    requires [_]frac_borrow(k, P) &*& [q]lifetime_token(k);
-    ensures lifetime_inclusion(k, result) == true &*& [?f]P() &*& close_frac_borrow_token_strong(result, P, q, k, f);
+    req [_]frac_borrow(k, P) &*& [q]lifetime_token(k);
+    ens lifetime_inclusion(k, result) == true &*& [?f]P() &*& close_frac_borrow_token_strong(result, P, q, k, f);
 
-typedef lemma void frac_borrow_convert_strong(predicate() Ctx, predicate() Q, lifetime_t k1, real f, predicate() P)();
-    requires Ctx() &*& Q() &*& [_]lifetime_dead_token(k1); // Empty mask
-    ensures [f]P();
+lem_type frac_borrow_convert_strong(Ctx: pred(), Q: pred(), k1: lifetime_t, f: real, P: pred()) = lem();
+    req Ctx() &*& Q() &*& [_]lifetime_dead_token(k1); // Empty mask
+    ens [f]P();
 
-lemma void close_frac_borrow_strong(lifetime_t k1, predicate() P, predicate() Q);
+lem close_frac_borrow_strong(k1: lifetime_t, P: pred(;), Q: pred());
     nonghost_callers_only
-    requires close_full_borrow_token_strong(k1, P, ?q, ?k, ?f) &*& is_frac_borrow_convert_strong(?c, ?Ctx, Q, k1, f, P) &*& Ctx() &*& Q();
-    ensures full_borrow(k1, Q) &*& [q]lifetime_token(k) &*& is_frac_borrow_convert_strong(c, Ctx, Q, k1, f, P);
+    req close_frac_borrow_token_strong(k1, P, ?q, ?k, ?f) &*& is_frac_borrow_convert_strong(?c, ?Ctx, Q, k1, f, P) &*& Ctx() &*& Q();
+    ens full_borrow(k1, Q) &*& [q]lifetime_token(k) &*& is_frac_borrow_convert_strong(c, Ctx, Q, k1, f, P);
 ```
 
 Notice that it produces a full borrow. To prove `init_ref_T`, one would split this full borrow into a part that is turned into a fractured borrow and that goes into the SHR predicate at `p`, and the `ref_initialized` token that is also turned into a fractured borrow.
