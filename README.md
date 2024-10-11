@@ -314,6 +314,24 @@ z.replace(31);
 //@ assert thread_token(t) &*& x |-> _ &*& y |-> p &*& z |-> q;
 ```
 
+## Shared references to references
+
+The [Rustonomicon](https://doc.rust-lang.org/reference/behavior-considered-undefined.html) says
+
+<blockquote>Moreover, the bytes pointed to by a shared reference, including transitively through other references (both shared and mutable) and Boxes, are immutable; transitivity includes those references stored in fields of compound types.</blockquote>
+
+If `T` is of the form `&U` or `&mut U` or `Box<U>`, ghost command `init_ref(p, frac)` consumes `ref_init_perm::<T>(p, ?x)` and `[frac]*x |-> ?y`, and produces `[frac]*p |-> y` as well as `initializing_ref_ref::<T>(p, x, frac, ?q)` and `ref_init_perm::<U>(q, y)`, and the fact `ref_origin(q) == ref_origin(y)`. `q` is a fresh pointer value with the same address as `y`. It is as if a new shared reference to `y` is being created, but note that there is no way for `y` to ever end up in a program variable so it is never actually used. This simply reuses the mechanism for shared reference initialization to "freeze" recursive references until the original reference is ended.
+
+At this point, `q` must be recursively initialized, producing `ref_initialized::<U>(q)`.
+
+Then, ghost command `finish_init_ref_ref(p)` consumes `initializing_ref_ref::<T>(p, ?x, ?frac, ?q)` and `[1/2]ref_initialized::<U>(q)` and produces `ref_ref_end_token(p, x, frac, q)` and `ref_initialized::<T>(p)`.
+
+This blocks `q` from being ended before `p` is ended.
+
+Ghost command `end_ref_ref(p)` consumes `ref_ref_end_token(p, ?x, ?frac, ?q)` and `ref_initialized::<T>(p)` and produces `[frac]*x |-> y` and `[1/2]ref_initialized::<U>(q)`.
+
+At this point, `q` can also be ended.
+
 # Summary of assertions and ghost commands
 
 ## Assertions
@@ -326,6 +344,8 @@ z.replace(31);
 | `init_ref_perm(p, x)` | Denotes permission to initialize shared reference `p` which was derived from `x` |
 | `ref_initialized(p)` | Denotes the fact that shared reference `p` has been fully initialized. This implies that any part of `p` that is not inside an `UnsafeCell` is readable (but owning this assertion is neither necessary nor sufficient for a thread to be allowed to read `p`; to do so, it (only) needs a fractional points-to assertion, as usual). |
 | `ref_end_token(p, x, frac)` | When combined with `ref_initialized(p)`, denotes permission to end shared reference `p`, which was derived from `x` and which was initialized with a fraction `frac` of `x`. |
+| `initializing_ref_ref(p, x, frac, q)` | Denotes that shared reference `p`, derived from `x` and initialized with fraction `frac` of `x`, points to a reference or `Box` `y`. A "virtual" shared reference `q` has been derived from `y` and is being initialized. |
+| `ref_ref_end_token(p, x, frac, q)` | Denotes that shared reference `p`, derived from `x` and initialized with fraction `frac` of `x`, points to a reference or `Box` `y`. A "virtual" shared reference `q` has been derived and initialized from `y`. |
 
 ## Ghost commands
 
@@ -337,6 +357,8 @@ z.replace(31);
 | `close_ref_initialized(p)` | Applicable if `p` is of type `&T` where `T` is a struct. Consumes, for each field `fi` of T whose type is not of the form `UnsafeCell<_>`, `ref_initialized(&(*p).fi)`, and produces `ref_initialized(p)`. |
 | `open_ref_initialized(p)` | Applicable if `p` is of type `&T` where `T` is a struct. Consumes `ref_initialized(p)` and produces, for each field `fi` of T whose type is not of the form `UnsafeCell<_>`, `ref_initialized(&(*p).fi)`. |
 | `end_ref(p)` | Applicable if `p` is of type `&T` where `T` is a simple scalar primitive type. Consumes `ref_initialized(p)` and `ref_end_token(p, ?x, ?frac)` and `[frac]*p \|-> ?v` and produces `[frac]*x \|-> v`. |
+| `finish_init_ref_ref(p)` | Consumes `initializing_ref_ref::<T>(p, ?x, ?frac, ?q)` and `[1/2]ref_initialized::<U>(q)` and produces `ref_ref_end_token(p, x, frac, q)` and `ref_initialized::<T>(p)`. |
+| `end_ref_ref(p)` | Consumes `ref_ref_end_token(p, ?x, ?frac, ?q)` and `ref_initialized::<T>(p)` and produces `[frac]*x \|-> y` and `[1/2]ref_initialized::<U>(q)`. |
 
 # Verifying the borrow checker
 
