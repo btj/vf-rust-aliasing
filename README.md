@@ -3,6 +3,20 @@ An approach for verifying compliance with Tree Borrows in VeriFast
 
 For Tree Borrows, see the work by [Neven Villani and Ralf Jung](https://perso.crans.org/vanille/treebor/index.html).
 
+# Boxes
+
+When a `Box<T>` value is passed as a function argument `x`, the function must not access the box's content through any pointer it does not itself derive from `x`. We enforce this by "refreshing" each box passed as an argument: for each parameter `x` of type `Box<T>`, we insert the following code at the top of the function:
+```rust
+x = refresh_box::<T>(x);
+```
+The function `refresh_box` is specified as follows:
+```
+lem refresh_box<T>(x: Box<T>) -> Box<T>
+    req Box::<T>(x, ?v);
+    ens Box::<T>(result, v);
+```
+where assertion `Box::<T>(x, v)` asserts full ownership of the box `x` currently storing value `v` (of type T).
+
 # Mutable references
 
 In VeriFast, currently, the expression `&mut *x` simply evaluates to `x`. In this proposal, instead it will evaluate to a fresh pointer value `p` (whose address equals that of `x` but whose provenance is different). (The range of valid addresses of the new provenance equals that of the old one, though.) This means existing heap chunks do not provide any access via the new pointer `p`. Therefore, symbolic evaluation of this expression also consumes the (full) points-to chunk at `x` and produces it at `p`. Furthermore, it produces a `ref_mut_end_token(p, x)`. A ghost command `end_ref_mut(p)` consumes the `ref_mut_end_token(p, ?x)` and `*p |-> ?v` and produces `*x |-> v`.
