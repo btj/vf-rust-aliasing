@@ -77,7 +77,7 @@ If a struct containing mutable references is passed as an argument, all of the m
 ```rust
 x = refresh_and_protect_S(x);
 ```
-This function simply refreshes and protects each of its components. After this call of `refresh_and_protect_S`, VeriFast will consume `protected(x, ?info)`. This chunk can be obtained by calling ghost command `protect_struct(x)` at the end of the function body, which consumes `protected(x.fi, ?infoi)` for each field `fi` of S of reference or struct type, and produces `protected(x, prot_info_list([info1, ..., infon]))`.
+This function simply refreshes and protects each of its components. After this call of `refresh_and_protect_S`, VeriFast will consume `protected(x, ?info)`. This chunk can be obtained by calling ghost command `protect_struct(x)` at the end of the body of `refresh_and_protect_S` (whose "real" code is fixed but where the developer of the module that defines S can insert ghost commands), which consumes `protected(x.fi, ?infoi)` for each field `fi` of S of reference or struct type, and produces `protected(x, prot_info_list([info1, ..., infon]))`.
 
 After an argument `x` has been refreshed and protected, the `protected(x, ?info)` chunk is consumed by VeriFast, and made available again after the last real instruction of the function. At that point, the `unprotect_struct(x)` instruction can be used to turn a `protected(v, prot_info_list[(info1, ..., infon]))` chunk, where `v` is of struct type S, back into the constituent `protected(v.fi, infoi)` chunks, and `unprotect_ref_mut(v, prot_info_ref_mut(v, ?x, ?f))` can be used to get `[1 - f]ref_mut_end_token(v, x)`.
 
