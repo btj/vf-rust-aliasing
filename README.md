@@ -11,11 +11,19 @@ x = refresh_box::<T>(x);
 ```
 The function `refresh_box` is specified as follows:
 ```
-lem refresh_box<T>(x: Box<T>) -> Box<T>
+fn refresh_box<T>(x: Box<T>) -> Box<T>
     req Box::<T>(x, ?v);
     ens Box::<T>(result, v);
 ```
 where assertion `Box::<T>(x, v)` asserts full ownership of the box `x` currently storing value `v` (of type T).
+
+## Compound arguments
+
+If a struct containing boxes is passed as an argument, the boxes must be refreshed. Therefore, for every argument `x` of struct type S, we insert the following code at the top of the function:
+```rust
+x = refresh_S(x);
+```
+The function `refresh_S` simply recursively refreshes each of its components. To enable modular reasoning and abstraction, the module that defines S shall also provide a specification for `refresh_S` (and verifying that module includes verifying that `refresh_S` satisfies its specification).
 
 # Mutable references
 
