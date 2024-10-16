@@ -55,7 +55,31 @@ Note: in VeriFast, `LHS |-> RHS` denotes exclusive ownership of *place* (lvalue)
 
 ## Function arguments
 
-Tree Borrows says that references passed as function arguments must not become disabled while the function call executes. We can enforce this for mutable references by temporarily consuming, at the call site, some fraction of `ref_mut_end_token` for each argument that is a mutable reference for the duration of the call. (Note: it does not work to temporarily consume this chunk fully, because the same reference may be passed as an argument to any number of nested function calls. A fraction of this chunk must therefore travel with the mutable reference wherever it goes. Therefore, it should probably be kept inside a fractured borrow at the same lifetime as the mutable reference.)
+Tree Borrows says that references passed as function arguments must not become disabled while the function call executes. (It calls this "protection".) Furthermore, if a mutable reference is passed as an argument `x`, the memory it points to must be accessed by that function only through pointers it itself derived from `x`.
+
+We can enforce both constraints by "reborrowing" each mutable reference passed as an argument (this ensures other pointers are unusable while the reborrow lasts), and consuming a fraction of the `ref_mut_end_token` for the duration of the function call. 
+
+Specifically, for each argument `x` of type `&mut T`, we insert the following code at the top of the function:
+```rust
+x = refresh_and_protect_ref_mut::<T>(x);
+```
+This function has the following spec:
+```
+fn refresh_and_protect_ref_mut<T>(x: &mut T) -> &mut T
+    req *x |-> ?v;
+    ens *result |-> v &*& [?f]ref_mut_end_token(result, x) &*& protected(result, prot_info_ref_mut(result, x, f));
+```
+Notice that this function does not make the full `ref_mut_end_token` available; only a fraction `f`. The remainder will be made available after the last real instruction of the function.
+
+### Compound arguments
+
+If a struct containing mutable references is passed as an argument, all of the mutable references must be refreshed and protected, and the boxes must be refreshed. We therefore roll the two mechanisms into one. For each argument `x` of struct type S, the following code is inserted at the top of the function:
+```rust
+x = refresh_and_protect_S(x);
+```
+This function simply refreshes and protects each of its components. After this call of `refresh_and_protect_S`, VeriFast will consume `protected(x, ?info)`. This chunk can be obtained by calling ghost command `protect_struct(x)` at the end of the function body, which consumes `protected(x.fi, ?infoi)` for each field `fi` of S of reference or struct type, and produces `protected(x, prot_info_list([info1, ..., infon]))`.
+
+After an argument `x` has been refreshed and protected, the `protected(x, ?info)` chunk is consumed by VeriFast, and made available again after the last real instruction of the function. At that point, the `unprotect_struct(x)` instruction can be used to turn a `protected(v, prot_info_list[(info1, ..., infon]))` chunk, where `v` is of struct type S, back into the constituent `protected(v.fi, infoi)` chunks, and `unprotect_ref_mut(v, prot_info_ref_mut(v, ?x, ?f))` can be used to get `[1 - f]ref_mut_end_token(v, x)`.
 
 # Shared references (simple case)
 
@@ -107,23 +131,7 @@ x += 1;
 
 ## Function arguments
 
-For each function argument `p` of shared reference type, some fraction of the `ref_initialized(p)` token is consumed for the duration of the call.
-
-### Compound function arguments
-
-The [Rustonomicon](https://doc.rust-lang.org/reference/behavior-considered-undefined.html) says
-
-<blockquote>When a reference (but not a Box!) is passed to a function, it is live at least as long as that function call, again except if the `&T` contains an `UnsafeCell<U>`.
-All this also applies when values of these types are passed in a (nested) field of a compound type, but not behind pointer indirections.</blockquote>
-
-Since structs may be abstraction boundaries, we introduce a multi-step process. Before the first (non-ghost) instruction of a function, for each argument value `v` of type T a `protected::<T>(v, ?info)` chunk is consumed. `info` is of type `frac_tree = ft_unit | ft_single(real) | ft_pair(frac_tree, frac_tree)`. This chunk can be obtained as follows:
-
-- If `v` is a simple scalar value (like `i32`), `protect_scalar(v)` produces `protected(v, ft_unit)`.
-- If `v` is a mutable reference, `protect_ref_mut(v, frac)` consumes `[frac]ref_mut_end_token(v, _)` and produces `protected(v, ft_single(frac))`.
-- If `v` is a shared reference, `protect_ref(v, frac)` consumes `[frac]ref_initialized(v)` and produces `protected(v, ft_single(frac))`.
-- If `v` is a struct with two fields, with values `v1` and `v2`, `protect_struct(v)` consumes `protected(v1, ?info1)` and `protected(v2, ?info2)` and produces `protected(v, ft_pair(info1, info2))`. (This generalizes straightforwardly to structs with a different number of fields.)
-
-After the last (non-ghost) instruction before a function returns, these chunks are produced again. Ghost commands `unprotect_ref`, `unprotect_ref_mut`, and `unprotect_struct` are the inverse of the corresponding `protect_XYZ` commands and can be used to recover the `ref_mut_end_token` and `ref_initialized` fractions consumed by the protection process.
+Shared references passed as function arguments, or as components of function arguments, are reborrowed, and the reborrow is protected against being ended before the end of the function call, just like in the case of mutable references, by the `refresh_and_protect` mechanism.
 
 # Shared references to structs
 
@@ -398,13 +406,10 @@ At this point, `q` can also be ended.
 | `end_ref(p)` | Applicable if `p` is of type `&T` where `T` is a simple scalar primitive type. Consumes `ref_initialized(p)` and `ref_end_token(p, ?x, ?frac)` and `[frac]*p \|-> ?v` and produces `[frac]*x \|-> v`. |
 | `finish_init_ref_ref(p)` | Consumes `initializing_ref_ref::<T>(p, ?x, ?frac, ?q)` and `[1/2]ref_initialized::<U>(q)` and produces `ref_ref_end_token(p, x, frac, q)` and `ref_initialized::<T>(p)`. |
 | `end_ref_ref(p)` | Consumes `ref_ref_end_token(p, ?x, ?frac, ?q)` and `ref_initialized::<T>(p)` and produces `[frac]*x \|-> y` and `[1/2]ref_initialized::<U>(q)`. |
-| `protect_scalar(v)` | Applicable if `v` is of simple scalar type (e.g. `i32`). Produces `protected(v, ft_unit)`. |
-| `protect_ref_mut(v, frac)` | Applicable if `v` is a mutable reference. Consumes `[frac]ref_mut_end_token(v, _)` and produces `protected(v, ft_single(frac))`. |
-| `protect_ref(v, frac)` | Applicable if `v` is a shared reference. Consumes `[frac]ref_initialized(v)` and produces `protected(v, ft_single(frac))`. |
-| `protect_struct(v)` | Applicable if `v` is a struct. Consumes `protected(vi, ?infoi)` for each component `vi` of `v`, and produces `protected(v, ft_pair(info1, ft_pair(info2, ... ft_unit ...)))`. |
-| `unprotect_ref_mut(v)` | Applicable if `v` is a mutable reference. Consumes `protected(v, ft_single(?frac))` and produces `[frac]ref_mut_end_token(v, _)`. |
-| `unprotect_ref(v)` | Applicable if `v` is a shared reference. Consumes `protected(v, ft_single(?frac))` and produces `[frac]ref_initialized(v)`. |
-| `unprotect_struct(v)` | Applicable if `v` is a struct. Consumes `protected(v, ft_pair(?info1, ft_pair(?info2, ...)))` and produces, for each component value `vi` of `v`, `protected(vi, infoi)`. |
+| `protect_struct(v)` | Applicable if `v` is a struct. Consumes `protected(vi, ?infoi)` for each component `vi` of `v`, and produces `protected(v, prot_info_list([info1, ..., infon]))`. |
+| `unprotect_ref_mut(v)` | Applicable if `v` is a mutable reference. Consumes `protected(v, prot_info_ref_mut(v, ?x, ?frac))` and produces `[1 - frac]ref_mut_end_token(v, x)`. |
+| `unprotect_ref(v)` | Applicable if `v` is a shared reference. Consumes `protected(v, prot_info_ref(v, ?frac))` and produces `[1 - frac]ref_initialized(v)`. |
+| `unprotect_struct(v)` | Applicable if `v` is a struct. Consumes `protected(v, prot_info_list([?info1, ..., ?infon))` and produces, for each component value `vi` of `v` of reference or struct type, `protected(vi, infoi)`. |
 
 # Verifying the borrow checker
 
@@ -473,24 +478,16 @@ lem close_frac_borrow_strong(k1: lifetime_t, P: pred(;), Q: pred());
 
 Notice that it produces a full borrow. To prove `init_ref_T`, one would split this full borrow into a part that is turned into a fractured borrow and that goes into the SHR predicate at `p`, and the `ref_initialized` token that is also turned into a fractured borrow.
 
-## The meaning of references in RustBelt
+## Refreshment and protection of structs
 
-In conclusion, the meaning of mutable and shared references in RustBelt must be updated slightly, so that any recipient can pass the reference as an argument in a function call:
-- The meaning of a mutable reference `p : &mut 'a T` at thread `t` changes as follows:
-  - from `full_borrow(a, full_borrow_content::<T>(t, p))`
-  - to `full_borrow(a, full_borrow_content::<T>(t, p)) &*& [_]frac_borrow(a, ref_mut_end_token_(p))`.
-- The meaning of a shared reference `p : &'a T` at thread `t` changes as follows:
-  - from `[_]T_share(a, t, p)`
-  - to `[_]T_share(a, t, p) &*& [_]frac_borrow(a, ref_initialized_(p))`.
-
-## Protection of structs
-
-For each struct S with a user-defined OWN predicate, the following proof obligation must be proven to ensure values of S can be passed as arguments to unverified typechecked functions:
+For each struct S with a user-defined OWN predicate, the following spec must be proven for `refresh_and_protect_S` to ensure values of S can be passed as arguments to unverified typechecked functions:
 
 ```
-lem protect_S(k: lifetime_t, t: thread_id_t, v: S)
-    req <S>.own(t, v) &*& type_outlives_lifetime::<S>(k) == true;
-    ens <S>.own(t, v) &*& [_]frac_borrow(k, protected_(v));
+pred_ctor protected_<T>(v: T)() = protected::<T>(v, _);
+
+fn refresh_and_protect_S(v: S) -> S
+    req exists<lifetime_t>(?k) &*& exists<thread_id_t>(?t) <S>.own(t, v) &*& type_outlives_lifetime::<S>(k) == true;
+    ens <S>.own(t, result) &*& [_]frac_borrow(k, protected_(result));
 ```
 
-That is, from the OWN predicate we must be able to derive a `protected(v, _)` fact that lives as long as the function call to which the `S` value is passed (which is necessarily a lifetime included in the lifetimes involved in type S). Notice that this is trivially the case if `S` has the default interpretation, given the meaning of references defined above, where a value `p` of type `&'a mut T` travels with a `[_]frac_borrow(a, ref_mut_end_token_(p))` and a value `p` of type `&'a T` travels with a `[_]frac_borrow(a, ref_initialized_(p))`.
+That is, from the OWN predicate we must be able to derive a `protected(v, _)` fact that lives as long as the function call to which the `S` value is passed (which is necessarily a lifetime included in the lifetimes involved in type S).
