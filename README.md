@@ -17,6 +17,8 @@ fn refresh_box<T>(x: Box<T>) -> Box<T>
 ```
 where assertion `Box::<T>(x, v)` asserts full ownership of the box `x` currently storing value `v` (of type T).
 
+(Refreshing is called "retagging" in Tree Borrows.)
+
 ## Compound arguments
 
 If a struct containing boxes is passed as an argument, the boxes must be refreshed. Therefore, for every argument `x` of struct type S, we insert the following code at the top of the function:
@@ -24,6 +26,10 @@ If a struct containing boxes is passed as an argument, the boxes must be refresh
 x = refresh_S(x);
 ```
 The function `refresh_S` simply recursively refreshes each of its components. To enable modular reasoning and abstraction, the module that defines S shall also provide a specification for `refresh_S` (and verifying that module includes verifying that `refresh_S` satisfies its specification).
+
+## Return values
+
+If a box or a struct containing boxes is returned from a function, presumably the caller must access the box only through pointers derived from the `Box<T>` value. Therefore, we also refresh function return values. Specifically, if the return type is a struct type S, we replace `return x;` by `return refresh_S(x);`.
 
 # Mutable references
 
@@ -80,6 +86,10 @@ x = refresh_and_protect_S(x);
 This function simply refreshes and protects each of its components. After this call of `refresh_and_protect_S`, VeriFast will consume `protected(x, ?info)`. This chunk can be obtained by calling ghost command `protect_struct(x)` at the end of the body of `refresh_and_protect_S` (whose "real" code is fixed but where the developer of the module that defines S can insert ghost commands), which consumes `protected(x.fi, ?infoi)` for each field `fi` of S of reference or struct type, and produces `protected(x, prot_info_list([info1, ..., infon]))`.
 
 After an argument `x` has been refreshed and protected, the `protected(x, ?info)` chunk is consumed by VeriFast, and made available again after the last real instruction of the function. At that point, the `unprotect_struct(x)` instruction can be used to turn a `protected(v, prot_info_list[(info1, ..., infon]))` chunk, where `v` is of struct type S, back into the constituent `protected(v.fi, infoi)` chunks, and `unprotect_ref_mut(v, prot_info_ref_mut(v, ?x, ?f))` can be used to get `[1 - f]ref_mut_end_token(v, x)`.
+
+## Return values
+
+If a function returns a mutable reference or a struct containing mutable references, presumably the caller must not interleave accesses of the memory pointed to by each mutable reference through the mutable reference and through other pointers. Therefore, we reuse the `refresh_and_protect` mechanism to also refresh a function's return value. In contrast to arguments, however, there is no need for protection so the caller is free to unprotect the refreshed return value immediately.
 
 # Shared references (simple case)
 
